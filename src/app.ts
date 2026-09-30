@@ -32,6 +32,7 @@ import priceUpdatesRouter from "./routes/priceUpdates";
 import sanityCheckRouter from "./routes/sanityCheck";
 import statsRouter from "./routes/stats";
 import statusRouter from "./routes/status";
+import poolsRouter from "./routes/pools";
 import systemControlRouter from "./routes/systemControl";
 import systemFailoverRouter from "./routes/systemFailover";
 import analyticsRouter from "./routes/analytics";
@@ -143,6 +144,8 @@ app.use("/api/v1/intelligence", intelligenceRouter);
 app.use("/api/v1/price-updates", priceUpdatesRouter);
 app.use("/api/v1/assets", assetsRouter);
 app.use("/api/v1/status", statusRouter);
+// Issue #1047 – Concentrated liquidity swap fee projection
+app.use("/api/v1/pools", poolsRouter);
 app.use("/api/v1/derived-assets", derivedAssetsRouter);
 app.use("/api/v1/sanity-check", sanityCheckRouter);
 app.use("/api/v1/cache", cacheMetricsRouter);
