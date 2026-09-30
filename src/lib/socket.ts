@@ -2,6 +2,7 @@ import { Server, Socket } from "socket.io";
 import { randomUUID } from "crypto";
 import { encode } from "@msgpack/msgpack";
 import { getApiContentSecurityPolicy } from "../middleware/securityHeadersMiddleware";
+import { registerGovernanceHandlers } from "../websockets/governanceWebSocket.service";
 
 interface Session {
   id: string; // connectionSessionId
@@ -166,6 +167,9 @@ export function initSocket(server: import("http").Server): Server {
 
   // Cleanup routine
   setInterval(cleanupSessions, CLEANUP_INTERVAL);
+
+  // Register governance WebSocket handlers
+  registerGovernanceHandlers(io);
 
   return io;
 }
