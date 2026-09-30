@@ -51,6 +51,7 @@ import anchorsRouter from "./routes/anchors";
 import relayerKeysRouter from "./routes/relayerKeys";
 import { sendApiError } from "./lib/apiError.js";
 import metricsRouter from "./routes/metrics";
+import stateRouter from "./routes/state";
 
 dotenv.config();
 
@@ -156,6 +157,8 @@ app.use("/api/v1/gas-profile", gasProfileRouter);
 app.use("/api/v1/zk", zkRouter);
 app.use("/api/v1/governance", governanceRouter);
 app.use("/api/v1/proof", proofRouter);
+// Issue #967 – verify Soroban storage inclusion proofs against ledger headers.
+app.use("/api/v1/state", stateRouter);
 app.use("/api/v1/orders", ordersRouter);
 
 // Issue #815 – Remittance transaction history endpoint
