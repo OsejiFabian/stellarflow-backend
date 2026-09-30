@@ -8,7 +8,11 @@
  */
 
 import { Router } from "express";
-import { getVoterProfile, governanceVoterCache } from "../controllers/governanceController.js";
+import {
+  getProposalExecutionAvailability,
+  getVoterProfile,
+  governanceVoterCache,
+} from "../controllers/governanceController.js";
 
 const router = Router();
 
@@ -62,5 +66,6 @@ const router = Router();
  *         description: Internal server error
  */
 router.get("/voters/:account_id", governanceVoterCache(), getVoterProfile);
+router.get("/execution-window", getProposalExecutionAvailability);
 
 export default router;
