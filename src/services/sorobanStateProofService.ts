@@ -100,13 +100,16 @@ export function verifySorobanStateProof(input: VerifySorobanStateProofInput) {
       );
     }
     const requestedContract = StrKey.decodeContract(input.contractId);
-    if (!data.contract().contractId().value().equals(requestedContract)) {
+    const storedContract = Buffer.from(
+      data.contract().contractId() as unknown as Uint8Array,
+    );
+    if (!storedContract.equals(requestedContract)) {
       throw new InvalidLedgerProofError(
         "The proved ledger entry does not match contractId.",
       );
     }
 
-    const expectedRoot = header.bucketListHash().value();
+    const expectedRoot = Buffer.from(header.bucketListHash());
     // BucketList hashes live/dead/init BucketEntry XDR, not bare LedgerEntry XDR.
     const bucketEntryBytes = xdr.BucketEntry.liveentry(entry).toXDR();
     const actualRoot = foldProofPath(sha256(bucketEntryBytes), input.proof);
