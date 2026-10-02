@@ -82,6 +82,16 @@ uvicorn[standard]>=0.24.0
 # (uses stdlib concurrent.futures, no extra package needed)
 
 # ---------------------------------------------------------------------------
+# Protocol Buffers Binary Streaming (WebSocket bandwidth optimization)
+# ---------------------------------------------------------------------------
+
+# Protocol Buffers runtime library for binary message serialization
+protobuf>=4.25.0
+
+# Protocol Buffers compiler for generating Python code from .proto files
+grpcio-tools>=1.60.0
+
+# ---------------------------------------------------------------------------
 # Integration test suite (Issue #793)
 # ---------------------------------------------------------------------------
 
