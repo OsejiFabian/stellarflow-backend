@@ -5,6 +5,109 @@ datasource db {
   provider = "postgresql"
 }
 
+// WebAuthn / Passkey Authentication for Relayer Wallet Management
+// Stores registered passkey credentials (public keys) per relayer admin.
+// The credential public key is used to verify WebAuthn attestation
+// signatures on sensitive relayer administration commands (e.g. wallet
+// transfers). Challenge seeds are stored separately in WebAuthnChallenge
+// and are single-use with a short TTL.
+model WebAuthnCredential {
+  id              String   @id @default(uuid())
+  relayerId       Int
+  relayer         Relayer  @relation(fields: [relayerId], references: [id], onDelete: Cascade)
+
+  // WebAuthn credential identifier (base64url-encoded raw credential ID)
+  credentialId    String   @unique @db.VarChar(512)
+
+  // COSE-encoded public key (base64url) used to verify assertions
+  publicKey       String   @db.Text
+
+  // Signature counter for clone detection / replay protection
+  counter         BigInt   @default(0)
+
+  // Authenticator metadata
+  transports      String[] // e.g. ["usb", "nfc", "ble", "internal", "hybrid"]
+  aaguid          String?  @db.VarChar(64)
+  attestationFmt  String?  @db.VarChar(64)
+
+  // Human-friendly label for the passkey (e.g. "YubiKey 5C", "MacBook Touch ID")
+  label           String?  @db.VarChar(100)
+
+  // Lifecycle
+  isActive        Boolean  @default(true)
+  lastUsedAt      DateTime? @db.Timestamptz(3)
+  createdAt       DateTime @default(now()) @db.Timestamptz(3)
+  updatedAt       DateTime @updatedAt @db.Timestamptz(3)
+
+  @@index([relayerId, isActive])
+  @@index([credentialId])
+}
+
+// WebAuthn challenge seed storage.
+// Each challenge is single-use, bound to a relayer + operation, and expires
+// quickly (typically <= 5 minutes). Consumed challenges are deleted or marked
+// consumed to prevent replay.
+model WebAuthnChallenge {
+  id           String   @id @default(uuid())
+  relayerId    Int
+  relayer      Relayer  @relation(fields: [relayerId], references: [id], onDelete: Cascade)
+
+  // Random challenge bytes (base64url) that the authenticator must sign over
+  challenge    String   @unique @db.VarChar(512)
+
+  // Operation the challenge is bound to (e.g. "WALLET_TRANSFER", "REGISTER")
+  operation    String   @db.VarChar(50)
+
+  // Optional binding to a specific resource (e.g. target wallet id)
+  relatedId    String?  @db.VarChar(128)
+
+  // Request context for audit / anti-CSRF
+  ipAddress    String?  @db.VarChar(45)
+  userAgent    String?  @db.VarChar(500)
+
+  // Lifecycle
+  consumedAt   DateTime? @db.Timestamptz(3)
+  expiresAt    DateTime  @db.Timestamptz(3)
+  createdAt    DateTime  @default(now()) @db.Timestamptz(3)
+
+  @@index([relayerId, operation, expiresAt])
+  @@index([expiresAt])
+}
+
+// Audit trail for WebAuthn-attested relayer administration commands.
+// Records the verified credential + challenge used to authorize a sensitive
+// action (e.g. wallet transfer) so that administrative operations can be
+// independently audited and replayed assertions rejected.
+model WebAuthnAttestation {
+  id             String   @id @default(uuid())
+  relayerId      Int
+  relayer        Relayer  @relation(fields: [relayerId], references: [id], onDelete: Cascade)
+  credentialId   String   @db.VarChar(512)
+  challengeId    String   @db.VarChar(64)
+
+  // Operation authorized by this attestation
+  operation      String   @db.VarChar(50)
+  relatedId      String?  @db.VarChar(128)
+
+  // Raw assertion payload (clientDataJSON, authenticatorData, signature) for audit
+  clientDataJSON String   @db.Text
+  authenticatorData String @db.Text
+  signature      String   @db.Text
+
+  // Verification outcome
+  verified       Boolean  @default(false)
+  failureReason  String?  @db.VarChar(255)
+
+  ipAddress      String?  @db.VarChar(45)
+  userAgent      String?  @db.VarChar(500)
+
+  createdAt      DateTime @default(now()) @db.Timestamptz(3)
+
+  @@index([relayerId, operation, createdAt])
+  @@index([credentialId])
+  @@index([challengeId])
+}
+
 model PriceHistory {
   id          Int       @id @default(autoincrement())
   currency    String
@@ -363,8 +466,50 @@ model Relayer {
   permissionChanges PermissionChange[]
   sessions          UserSession[]
   registry          RelayerRegistry?
+  watchlist         WatchlistItem[]
+  notificationPreference UserNotificationPreference?
+  pushSubscriptions PushSubscription[]
   
   @@index([dekRotationScheduledAt])
+}
+
+model WatchlistItem {
+  id             String   @id @default(uuid())
+  userId         Int
+  user            Relayer  @relation(fields: [userId], references: [id], onDelete: Cascade)
+  token          String
+  targetPrice    Decimal  @db.Decimal(38, 18)
+  direction      String   @default("ABOVE")
+  isActive       Boolean  @default(true)
+  lastTriggeredAt DateTime?
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  @@unique([userId, token])
+  @@index([userId, isActive])
+}
+
+model UserNotificationPreference {
+  id        String   @id @default(uuid())
+  userId    Int      @unique
+  user      Relayer  @relation(fields: [userId], references: [id], onDelete: Cascade)
+  emailEnabled Boolean @default(true)
+  pushEnabled  Boolean @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+model PushSubscription {
+  id        String   @id @default(uuid())
+  userId    Int
+  user      Relayer  @relation(fields: [userId], references: [id], onDelete: Cascade)
+  endpoint  String   @unique
+  p256dh    String
+  auth      String
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([userId])
 }
 
 model RelayerRegistry {
@@ -591,9 +736,17 @@ model GovernanceProposal {
   updatedAt       DateTime  @updatedAt
   votes           GovernanceVote[]
 
+  // Issue #1019 – immutable IPFS snapshot of the final vote result
+  resultExportCid         String?
+  resultExportContentHash String?
+  resultExportedAt        DateTime?
+  resultExportAttempts    Int      @default(0)
+  resultExportError       String?
+
   @@index([status, expiresAt])
   @@index([contractId])
   @@index([actionType])
+  @@index([status, resultExportCid])
 }
 
 enum RebalancingSwapStatus {
@@ -875,3 +1028,24 @@ model WebhookEndpoint {
   @@index([url])
 }
 
+// SEP-12 Customer Information Transfer (KYC) – Issue #990
+// Customer KYC payloads are AES-256-GCM encrypted at rest; only ciphertext is
+// persisted in `encryptedPayload` (see src/services/kycEncryption.ts).
+model KycCustomer {
+  id               String   @id @default(uuid())
+  account          String?  @db.VarChar(64)
+  memo             String?
+  memoType         String?  @db.VarChar(16) // id | text | hash
+  status           String   @db.VarChar(16) // ACCEPTED | PROCESSING | NEEDS_INFO | REJECTED
+  message          String?
+  encryptedPayload String   // AES-256-GCM ciphertext of the JSON KYC payload
+  fieldsRequested  Json?    // SEP-12 fields map while status = NEEDS_INFO
+  anchorReference  String?
+  provider         String?
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+
+  @@unique([account, memoType, memo])
+  @@index([status, createdAt])
+  @@index([account])
+}
