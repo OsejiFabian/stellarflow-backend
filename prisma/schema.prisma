@@ -853,6 +853,26 @@ model GovernanceVote {
   @@index([accountId, votedAt])
 }
 
+// Voting Power Checkpoint Model – Issue #1044
+// Stores historical voting power checkpoints at specific ledger numbers for proposal voting eligibility.
+// Enables instant querying of historical voting power V(address, ledger, number) with < 20ms response times.
+model VotingPowerCheckpoint {
+  id             Int      @id @default(autoincrement())
+  accountId      String   // Stellar public key of the voter
+  ledgerSequence Int      // Ledger sequence number at which the checkpoint was created
+  votingWeight   Decimal  @db.Decimal(38, 18) // Voting power at this ledger
+  createdAt      DateTime @default(now()) // When the checkpoint was recorded
+
+  // Unique constraint ensures one checkpoint per account per ledger
+  @@unique([accountId, ledgerSequence])
+  // Primary query pattern: lookup voting power for an account at a specific ledger
+  @@index([accountId, ledgerSequence])
+  // Secondary pattern: scan all checkpoints at a specific ledger (for proposal eligibility)
+  @@index([ledgerSequence])
+  // Tertiary pattern: time-based queries for account's checkpoint history
+  @@index([accountId, createdAt])
+}
+
 model TimelockEvent {
   id         String   @id @default(uuid())
   eventType  String

@@ -183,6 +183,7 @@ export class SorobanEventListener {
       await this.pollOrderFilledEvents();
       await this.pollGovernanceVoteEvents();
       await this.pollCircuitBreakerEvents();
+      await this.pollVotingPowerCheckpointEvents();
 
       const transactions = await this.server
         .transactions()
@@ -397,6 +398,73 @@ export class SorobanEventListener {
         if (ledger > this.lastProcessedLedger) this.lastProcessedLedger = ledger;
       } catch (err) {
         logger.error("[EventListener] Failed to process circuit breaker event:", err);
+      }
+    }
+  }
+
+  /**
+   * Polls Soroban for checkpointCreated events emitted by the governance contract
+   * and stores voting power checkpoints for proposal voting eligibility.
+   *
+   * Expected event topics: ["checkpointCreated", accountId]
+   * Expected event data:   { votingWeight: string }
+   *
+   * Implements Issue #1044: Store historical voting power checkpoints at specific ledger numbers.
+   */
+  private async pollVotingPowerCheckpointEvents(): Promise<void> {
+    const contractId = (
+      process.env.GOVERNANCE_CONTRACT_ID ?? process.env.CONTRACT_ID
+    )?.trim();
+    if (!contractId) return;
+
+    const rpc = stellarProvider.getRpcServer() as any;
+
+    let response: { events?: any[] };
+    try {
+      response = await rpc.getEvents({
+        startLedger: Math.max(1, this.lastProcessedLedger),
+        filters: [
+          {
+            type: "contract",
+            contractIds: [contractId],
+            topics: [["checkpointCreated", "*"]],
+          },
+        ],
+        limit: 200,
+      });
+    } catch (err) {
+      logger.networkError("[EventListener] checkpointCreated poll failed:", {
+        err,
+      });
+      return;
+    }
+
+    for (const event of response.events ?? []) {
+      try {
+        // Topics: [eventName, accountId]
+        const topics: string[] = event.topic ?? [];
+        const accountId = topics[1];
+
+        if (!accountId) continue;
+
+        // Data value is a Soroban SCVal map – coerce to plain object
+        const dataVal = event.value?.value ?? event.value ?? {};
+        const votingWeight: string = dataVal.votingWeight ?? "0";
+        const ledger: number = Number(event.ledger ?? 0);
+
+        await storeVotingPowerCheckpoint({
+          accountId,
+          ledgerSequence: ledger,
+          votingWeight,
+        });
+
+        if (ledger > this.lastProcessedLedger)
+          this.lastProcessedLedger = ledger;
+      } catch (err) {
+        logger.error(
+          "[EventListener] Failed to ingest checkpointCreated event:",
+          err,
+        );
       }
     }
   }
