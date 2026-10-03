@@ -34,6 +34,14 @@ from .converter import (
 from .ema import RollingEMA, update_ema, ema_sequence, smoothing_factor, progressive_smoothing_factor
 from .latency import LatencyTracker, PacketLatencyRecord, LatencyMetrics, latency_tracker
 from .variance import IntegerVarianceEngine, VarianceParameters, parse_consensus_variance
+from .twap import (
+    TWAPEngine,
+    TradePoint,
+    PriceSample,
+    OutlierAuditRecord,
+    PostgresAuditLogger,
+    RollingPoolTWAPTracker,
+)
 
 __all__ = [
     "AssetDiversificationSwapSimulator",
@@ -75,6 +83,12 @@ __all__ = [
     "IntegerVarianceEngine",
     "VarianceParameters",
     "parse_consensus_variance",
+    "TWAPEngine",
+    "TradePoint",
+    "PriceSample",
+    "OutlierAuditRecord",
+    "PostgresAuditLogger",
+    "RollingPoolTWAPTracker",
 ]
 
 from .treasury_swap import (

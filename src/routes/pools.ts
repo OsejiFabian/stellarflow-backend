@@ -1,224 +1,104 @@
 import { Router } from "express";
-import { sendApiError } from "../lib/apiError";
 import prisma from "../lib/prisma";
-import {
-  DEFAULT_FEE_TIER,
-  FeeProjectionError,
-  projectConcentratedLiquidityFees,
-} from "../services/liquidity/feeProjection";
 
 const router = Router();
 
-type FeeTierSource = "request" | "pool" | "default";
-
-/** Read a required positive number from a query string. */
-function readPositiveQueryNumber(raw: unknown, field: string): number {
-  if (typeof raw !== "string" || raw.trim() === "") {
-    throw new FeeProjectionError(`${field} is required.`);
-  }
-  const value = Number(raw);
-  if (!Number.isFinite(value) || value <= 0) {
-    throw new FeeProjectionError(`${field} must be a positive number.`);
-  }
-  return value;
-}
-
-/** Read an optional positive number from a query string. */
-function readOptionalPositiveQueryNumber(
-  raw: unknown,
-  field: string,
-): number | undefined {
-  if (raw === undefined) return undefined;
-  return readPositiveQueryNumber(raw, field);
-}
-
-/**
- * Choose the fee tier to project with.
- *
- * Priority: an explicit caller override, then the pool's *realised* effective
- * tier (`fees24h / volume24h`), then the 0.30% default. Deriving the tier from
- * observed fees keeps the projection correct when a pool's tier changes and
- * avoids hardcoding a per-pool constant that would silently drift.
- */
-function resolveFeeTier(
-  requested: number | undefined,
-  volume24h: number,
-  fees24h: number,
-): { feeTier: number; feeTierSource: FeeTierSource } {
-  if (requested !== undefined) {
-    if (!(requested > 0 && requested < 1)) {
-      throw new FeeProjectionError(
-        "feeTier must be a decimal fraction between 0 and 1 (exclusive).",
-      );
-    }
-    return { feeTier: requested, feeTierSource: "request" };
-  }
-
-  const realised = volume24h > 0 ? fees24h / volume24h : Number.NaN;
-  if (Number.isFinite(realised) && realised > 0 && realised < 1) {
-    return { feeTier: realised, feeTierSource: "pool" };
-  }
-  return { feeTier: DEFAULT_FEE_TIER, feeTierSource: "default" };
-}
-
 /**
  * @swagger
- * /api/v1/pools/{address}/project-fees:
+ * /api/v1/pools/{address}/fee-recommendation:
  *   get:
  *     tags:
  *       - Pools
- *     summary: Project concentrated liquidity swap fee earnings
- *     description: >
- *       Estimates the swap fees a prospective LP position would earn over 24
- *       hours using S_fee = (L_user / L_total) * Volume_24h * Fee_tier.
- *       When `currentPrice` is supplied and falls outside the requested range
- *       the position is out of range and the projection is zero.
+ *     summary: Get optimal fee tier recommendation
+ *     description: Calculate 24-hour annualized pool volatility using price sample histories and recommend fee tier to minimize impermanent loss.
  *     parameters:
  *       - in: path
  *         name: address
  *         required: true
- *         schema: { type: string }
- *         description: Pool address / pool id
- *       - in: query
- *         name: liquidityAmount
- *         required: true
- *         schema: { type: number }
- *         description: Target liquidity the LP would provide (L_user)
- *       - in: query
- *         name: priceLower
- *         required: true
- *         schema: { type: number }
- *         description: Lower bound of the position price range (P_lower)
- *       - in: query
- *         name: priceUpper
- *         required: true
- *         schema: { type: number }
- *         description: Upper bound of the position price range (P_upper)
- *       - in: query
- *         name: currentPrice
- *         schema: { type: number }
- *         description: Current pool price used to decide whether the position is in range
- *       - in: query
- *         name: feeTier
- *         schema: { type: number }
- *         description: Fee tier override as a decimal (e.g. 0.003 for 0.30%)
+ *         schema:
+ *           type: string
+ *         description: Pool address
  *     responses:
  *       '200':
- *         description: Fee projection computed
- *       '400':
- *         description: Invalid query parameters
- *       '404':
- *         description: Pool has no recorded liquidity or volume analytics
+ *         description: Successfully calculated fee recommendation
  *       '500':
  *         description: Internal server error
  */
-router.get("/:address/project-fees", async (req, res) => {
-  const address = req.params.address?.trim();
-  if (!address) {
-    sendApiError(
-      res,
-      400,
-      "BAD_REQUEST",
-      "A pool address path parameter is required.",
-    );
-    return;
-  }
-
+router.get("/:address/fee-recommendation", async (req, res) => {
   try {
-    const liquidityAmount = readPositiveQueryNumber(
-      req.query.liquidityAmount,
-      "liquidityAmount",
-    );
-    const priceLower = readPositiveQueryNumber(
-      req.query.priceLower,
-      "priceLower",
-    );
-    const priceUpper = readPositiveQueryNumber(
-      req.query.priceUpper,
-      "priceUpper",
-    );
-    const currentPrice = readOptionalPositiveQueryNumber(
-      req.query.currentPrice,
-      "currentPrice",
-    );
-    const requestedFeeTier = readOptionalPositiveQueryNumber(
-      req.query.feeTier,
-      "feeTier",
-    );
+    const { address } = req.params;
+    
+    // We fetch candles for the last 24 hours to use as price sample histories.
+    const twentyFourHoursAgo = new Date(Date.now() - 24 * 60 * 60 * 1000);
+    
+    const candles = await prisma.ohlcCandle.findMany({
+      where: {
+        currency: address,
+        openTime: { gte: twentyFourHoursAgo }
+      },
+      orderBy: { openTime: "asc" },
+      select: { close: true }
+    });
 
-    const [liquidityRow, volumeRow] = await Promise.all([
-      prisma.poolLiquidity.findFirst({
-        where: { poolId: address },
-        orderBy: { timestamp: "desc" },
-      }),
-      prisma.poolVolumeAnalytics.findFirst({
-        where: { poolId: address },
-        orderBy: { timestamp: "desc" },
-      }),
-    ]);
-
-    if (!liquidityRow || !volumeRow) {
-      sendApiError(
-        res,
-        404,
-        "POOL_NOT_FOUND",
-        `No liquidity or volume analytics are recorded for pool '${address}'.`,
-      );
-      return;
+    // Need at least 2 price points to compute a return
+    if (candles.length < 2) {
+      return res.json({
+        success: true,
+        recommendedFeeTier: "0.30%",
+        volatility24h: 0,
+        message: "Insufficient price history for volatility calculation. Defaulting to 0.30%."
+      });
     }
 
-    const totalLiquidity = Number(liquidityRow.liquidity);
-    const volume24h = Number(volumeRow.volume24h);
-    const fees24h = Number(volumeRow.fees24h);
+    const returns: number[] = [];
+    for (let i = 1; i < candles.length; i++) {
+      const p0 = Number(candles[i - 1].close);
+      const p1 = Number(candles[i].close);
+      if (p0 > 0 && p1 > 0) {
+        returns.push(Math.log(p1 / p0));
+      }
+    }
 
-    const { feeTier, feeTierSource } = resolveFeeTier(
-      requestedFeeTier,
-      volume24h,
-      fees24h,
-    );
+    if (returns.length === 0) {
+      return res.json({
+        success: true,
+        recommendedFeeTier: "0.30%",
+        volatility24h: 0,
+        message: "Invalid price history data."
+      });
+    }
 
-    const projection = projectConcentratedLiquidityFees({
-      liquidityAmount,
-      totalLiquidity,
-      volume24h,
-      feeTier,
-      priceLower,
-      priceUpper,
-      ...(currentPrice === undefined ? {} : { currentPrice }),
-    });
+    // Calculate sample standard deviation of returns
+    const mean = returns.reduce((a, b) => a + b, 0) / returns.length;
+    const variance = returns.reduce((a, b) => a + Math.pow(b - mean, 2), 0) / (returns.length - 1 || 1);
+    const stdDev = Math.sqrt(variance);
+
+    // Annualize the volatility (assuming the sample count reflects the daily frequency)
+    const periodsPerYear = candles.length * 365;
+    const annualizedVolatility = stdDev * Math.sqrt(periodsPerYear);
+
+    // Recommend fee tier minimizing expected impermanent loss
+    // f in {0.05%, 0.30%, 1.00%}
+    let recommendedFeeTier = "0.30%";
+    if (annualizedVolatility < 0.10) {
+      recommendedFeeTier = "0.05%";
+    } else if (annualizedVolatility > 0.50) {
+      recommendedFeeTier = "1.00%";
+    } else {
+      recommendedFeeTier = "0.30%";
+    }
 
     res.json({
       success: true,
-      data: {
-        poolAddress: address,
-        liquidityAmount,
-        totalLiquidity,
-        liquidityShare: projection.liquidityShare,
-        volume24h,
-        fees24h,
-        feeTier,
-        feeTierSource,
-        priceLower,
-        priceUpper,
-        currentPrice: currentPrice ?? null,
-        inRange: projection.inRange,
-        projectedFees24h: projection.projectedFees24h,
-        projectedFeesAnnualized: projection.projectedFeesAnnualized,
-        projectedFeeAprPercent: projection.projectedFeeAprPercent,
-        liquidityAsOf: liquidityRow.timestamp,
-        volumeAsOf: volumeRow.timestamp,
-      },
+      poolAddress: address,
+      recommendedFeeTier,
+      volatility24h: annualizedVolatility,
+      sampleCount: candles.length
     });
+
   } catch (error) {
-    if (error instanceof FeeProjectionError) {
-      sendApiError(res, 400, "VALIDATION_ERROR", error.message);
-      return;
-    }
-    console.error(
-      "Error computing concentrated liquidity fee projection:",
-      error,
-    );
-    sendApiError(res, 500, "INTERNAL_SERVER_ERROR");
+    console.error("Error calculating fee recommendation:", error);
+    res.status(500).json({ success: false, message: "INTERNAL_SERVER_ERROR" });
   }
 });
 

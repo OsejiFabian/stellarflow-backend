@@ -1,7 +1,8 @@
-import { Request, Response } from "express";
-import { VaultService } from "../services/vaultService";
-import { AuctionPriceResponse } from "../types/vault.types";
-import { logger } from "../utils/logger";
+import { Request, Response } from 'express';
+import { VaultService } from '../services/vaultService';
+import { systemicRiskService } from '../services/systemicRiskWiring';
+import { AuctionPriceResponse } from '../types/vault.types';
+import { logger } from '../utils/logger';
 
 export class VaultController {
   private vaultService: VaultService;
@@ -106,6 +107,32 @@ export class VaultController {
       res.status(500).json({
         success: false,
         error: message,
+      });
+    }
+  }
+
+  /**
+   * Issue #978 – protocol-wide multi-collateral vault systemic risk score.
+   *
+   * `S_risk = SUM(V_collateral) / SUM(D_debt)` across every active vault,
+   * reported together with the protocol danger level (`NORMAL`, `ELEVATED`,
+   * `CRITICAL`) and any parameter adjustment proposal raised by the breach.
+   */
+  async getSystemicRisk(_req: Request, res: Response): Promise<void> {
+    try {
+      const snapshot = await systemicRiskService.evaluate();
+      res.json({
+        success: true,
+        data: snapshot,
+      });
+    } catch (error) {
+      logger.error('Failed to evaluate systemic vault risk:', error);
+      res.status(500).json({
+        success: false,
+        error:
+          error instanceof Error
+            ? error.message
+            : 'Failed to evaluate systemic vault risk',
       });
     }
   }

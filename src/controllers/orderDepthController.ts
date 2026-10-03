@@ -1,6 +1,5 @@
 import { Request, Response } from "express";
 import { orderDepthAggregatorService } from "../services/orderDepthAggregatorService";
-import { getRedisClient } from "../lib/redis";
 import { sendApiError } from "../lib/apiError";
 import { treasuryDiversificationService } from "../services/treasuryDiversificationService";
 
@@ -12,14 +11,10 @@ export async function getOrderDepth(req: Request, res: Response) {
   }
 
   try {
-    const redis = getRedisClient();
-    const keyPrefix = process.env.ORDER_BOOK_REDIS_PREFIX ?? "orders:book";
-    const cacheKey = `${keyPrefix}:${market}:depth:cache`;
-
-    const cachedDepth = await redis?.get(cacheKey);
+    const cachedDepth = await orderDepthAggregatorService.getCachedDepth(market);
 
     if (cachedDepth) {
-      res.json({ success: true, data: JSON.parse(cachedDepth) });
+      res.json({ success: true, data: cachedDepth });
       return;
     }
 
@@ -48,9 +43,9 @@ export async function simulateTreasuryDiversificationSwap(req: Request, res: Res
     );
   }
 
-  const notional = Number(totalNotival);
+  const notional = Number(totalNotional);
   if (!Number.isFinite(notional) || notional <= 0) {
-    return sendApiError(res, 400, "VALIDATION_ERROR", "totalNotival must be a positive number");
+    return sendApiError(res, 400, "VALIDATION_ERROR", "totalNotional must be a positive number");
   }
 
   const maxImpact =
@@ -82,7 +77,7 @@ export async function simulateTreasuryDiversificationSwap(req: Request, res: Res
   try {
     const depth = await orderDepthAggregatorService.getDepth(market, tickSize);
 
-    const simulation = treasuryDiverificationService.simulate({
+    const simulation = treasuryDiversificationService.simulate({
       market,
       tickSize,
       depth,

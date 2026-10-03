@@ -1,4 +1,5 @@
-import dotenv from "dotenv";
+import dotenv
+from "dotenv";
 import express from "express";
 import morgan from "morgan";
 import swaggerUi from "swagger-ui-express";
@@ -23,6 +24,7 @@ import { jwtMiddleware } from "./middleware/jwtMiddleware";
 
 import adminRouter from "./routes/admin";
 import authRouter from "./routes/auth";
+import oidcRouter from "./routes/oidc";
 import assetsRouter from "./routes/assets";
 import derivedAssetsRouter from "./routes/derivedAssets";
 import historyRouter from "./routes/history";
@@ -46,6 +48,7 @@ import ordersRouter from "./routes/orders";
 import sorobanSimulationRouter from "./routes/sorobanSimulation";
 import sorobanRentEstimateRouter from "./routes/sorobanRentEstimate";
 import remittanceRouter from "./routes/remittance";
+import kycRouter from "./routes/kyc";
 import userConversionsRouter from "./routes/userConversions";
 import paymentRoutingRouter from "./routes/paymentRouting";
 import anchorsRouter from "./routes/anchors";
@@ -56,6 +59,7 @@ import { sendApiError } from "./lib/apiError.js";
 import metricsRouter from "./routes/metrics";
 import watchlistRouter from "./routes/watchlist";
 import treasuryRouter from "./routes/treasury";
+import marketStreamRouter from "./routes/marketStream";
 
 dotenv.config();
 
@@ -93,6 +97,9 @@ app.use(axiosTracingMiddleware);
 
 app.use("/health", healthRouter);
 
+// Issue #1040 – SEP-01 stellar.toml metadata served from the well-known path.
+app.use("/.well-known", stellarTomlRouter);
+
 app.use("/api/v1/docs", swaggerUi.serve);
 
 app.get(
@@ -109,6 +116,7 @@ app.get(
   }),
 );
 
+app.use("/api/v1/auth/oidc", oidcRouter);
 app.use("/api/v1/auth", authRouter);
 app.use("/api", apiKeyMiddleware);
 app.use("/api", rateLimitMiddleware);
@@ -163,13 +171,12 @@ app.use("/api/v1/intelligence", intelligenceRouter);
 app.use("/api/v1/price-updates", priceUpdatesRouter);
 app.use("/api/v1/assets", assetsRouter);
 app.use("/api/v1/status", statusRouter);
-// Issue #1047 – Concentrated liquidity swap fee projection
 app.use("/api/v1/pools", poolsRouter);
 app.use("/api/v1/derived-assets", derivedAssetsRouter);
 app.use("/api/v1/sanity-check", sanityCheckRouter);
 app.use("/api/v1/cache", cacheMetricsRouter);
 
-// Issue #208 – Analytics / OHLC time-series endpoint
+// Issue #208 – Analytics / OHL  time-series endpoint
 app.use("/api/v1/analytics", analyticsRouter);
 
 // Issue #786 – Gas & CPU instruction profiler daily averages
@@ -178,12 +185,18 @@ app.use("/api/v1/gas-profile", gasProfileRouter);
 app.use("/api/v1/zk", zkRouter);
 app.use("/api/v1/governance", governanceRouter);
 app.use("/api/v1/proof", proofRouter);
+// Issue #967 – verify Soroban storage inclusion proofs against ledger headers.
+app.use("/api/v1/state", stateRouter);
 app.use("/api/v1/orders", ordersRouter);
 app.use("/api/v1/users/watchlist", watchlistRouter);
 app.use("/api/v1/treasury", treasuryRouter);
 
 // Issue #815 – Remittance transaction history endpoint
 app.use("/api/v1/remittance", remittanceRouter);
+
+// Issue #990 – SEP-12 customer information transfer (KYC) endpoints
+app.use("/api/v1/kyc", kycRouter);
+
 app.use("/api/v1/users", userConversionsRouter);
 app.use("/api/v1/payment-routing", paymentRoutingRouter);
 
@@ -197,6 +210,15 @@ app.use("/api/v1/sep24", sep24InitiationRouter);
 // Issue #1046 – Yield Farming Token Emission Schedule Calculator
 app.use("/api/v1/yield", yieldEmissionRouter);
 
+// Issue #1003 – Dynamic vault collateral valuation factors
+app.use("/api/v1/risk", riskRouter);
+
+// Issue #1067 – Soroban state root inspection status
+app.use("/api/v1/security", securityRouter);
+
+// Issue #1009 – Tax-compliant user transaction history exports
+app.use("/api/v1/users", taxReportRouter);
+
 // Issue #836 – Soroban Contract Instruction & Storage Rent Estimator
 // eslint-disable-next-line no-undef
 app.use("/api/v1/soroban/rent", sorobanRentEstimateRouter);
@@ -204,6 +226,9 @@ app.use("/api/v1/soroban/simulate", sorobanSimulationRouter);
 
 // Issue #813 Build Automated Storage Footprint Monitor for Managed PostgreSQL
 app.use("/metrics", metricsRouter);
+
+// Issue #1091 – High-Frequency Market Stream Aggregator
+app.use("/api/v1/market-stream", marketStreamRouter);
 
 app.get("/", (req, res) => {
   res.json({
@@ -235,7 +260,7 @@ app.get("/", (req, res) => {
       },
       derivedAssets: {
         crossRate: "/api/v1/derived-assets/rate/:base/:quote",
-        ngnGhs: "/api/v1/derived-assets/ngn-ghs",
+        ngnGhs: "/api/v1/derived-assets/njn-ghs",
       },
       admin: {
         lockdown: "POST /api/admin/lockdown",
@@ -256,6 +281,11 @@ app.get("/", (req, res) => {
         requestQuote: "POST /api/v1/payment-routing/quotes",
         lockQuote: "POST /api/v1/payment-routing/quotes/:id/lock",
         getQuote: "GET /api/v1/payment-routing/quotes/:id",
+      },
+marketStream: {
+        websocket: "ws://.../v1/market-stream?pairs=USDC-XLM,BTC-USDC",
+        metrics: "GET /api/v1/market-stream/metrics",
+        publish: "POST /api/v1/market-stream/publish",
       },
       yield: {
         emissions: "/api/v1/yield/emissions",

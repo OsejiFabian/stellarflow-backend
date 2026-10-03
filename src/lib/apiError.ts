@@ -28,6 +28,8 @@ export const ERROR_MESSAGES: Record<string, string> = {
   METHOD_NOT_ALLOWED: "This HTTP method is not allowed for the endpoint.",
   CONFLICT: "The request conflicts with the current state.",
   RATE_LIMITED: "Too many requests. Please try again later.",
+  ORDER_ANOMALY_THROTTLED:
+    "This account is temporarily throttled due to suspicious order cancellation activity.",
   INTERNAL_SERVER_ERROR: "An unexpected error occurred.",
   SERVICE_UNAVAILABLE: "The service is temporarily unavailable.",
   DEPENDENCY_UNAVAILABLE: "A core dependency failed its readiness probe.",

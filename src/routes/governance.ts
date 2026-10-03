@@ -67,6 +67,7 @@ const router = Router();
  *         description: Internal server error
  */
 router.get("/voters/:account_id", governanceVoterCache(), getVoterProfile);
+router.get("/execution-window", getProposalExecutionAvailability);
 
 // Swagger docs for this route live on the handler in governanceTurnoutController.ts.
 router.get("/analytics/turnout", governanceTurnoutCache(), getGovernanceTurnout);

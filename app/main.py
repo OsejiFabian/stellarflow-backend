@@ -2,6 +2,7 @@
 
 Issue #824 — Shielded Transaction Proof Verification Offloading Engine
 Issue #NEW — Cryptographically Signed Audit Logging System for Administrative Operations
+Issue #973 — Build Automated API Endpoint Performance SLA Monitoring Middleware
 
 The Dockerfile starts this module with:
     uvicorn app.main:app --host 0.0.0.0 --port 8000
@@ -21,11 +22,12 @@ from contextlib import asynccontextmanager
 
 import structlog
 from fastapi import FastAPI, HTTPException, Request
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, PlainTextResponse
 from pydantic import BaseModel
 from starlette.middleware.base import BaseHTTPMiddleware
 
 from app.core.logging import bind_request_context, clear_contextvars
+from app.middleware.sla_monitoring import SLAMonitoringMiddleware
 from app.models.proof import ProofVerificationRequest, ProofVerificationResponse
 from app.services.executor_pool import (
     LATENCY_BUDGET_MS,
@@ -192,11 +194,14 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(
     title="StellarFlow Backend Services",
-    description="Combined service including proof verification, revenue tracking, and compliance audit logging",
+    description="Combined service including proof verification, revenue tracking, compliance audit logging, and SLA monitoring",
     version="1.0.0",
     lifespan=lifespan,
 )
 
+# Add middleware (order matters: last added = first executed)
+# SLA monitoring should be outer layer to track all requests including middleware overhead
+app.add_middleware(SLAMonitoringMiddleware, sla_target_p99_ms=200.0)
 app.add_middleware(StructlogRequestMiddleware)
 
 
@@ -242,8 +247,10 @@ async def auth_challenge_consume(
 
 @app.get("/health")
 async def health() -> JSONResponse:
+    """Health check endpoint for load balancers and monitoring."""
     return JSONResponse(
         {
+            "status": "ok",
             "success": True,
             "service": "stellarflow-backend",
             "processPoolWorkers": PROOF_PROCESS_POOL_WORKERS,
