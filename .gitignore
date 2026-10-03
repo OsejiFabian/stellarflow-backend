@@ -29,6 +29,7 @@ reports/
 
 # Rust / Soroban contract build artifacts
 contracts/target/
+native/shielded_merkle/target/
 
 # Generated load-test artifacts (k6 summaries, monitor CSVs, reports)
 tests/load/results/
