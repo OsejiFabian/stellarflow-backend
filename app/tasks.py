@@ -904,3 +904,43 @@ async def _auto_rebalance_capital_async() -> Dict[str, Any]:
                 "message": "Drift below threshold; no rebalancing needed",
                 "timestamp": datetime.now(timezone.utc).isoformat(),
             }
+
+
+# ---------------------------------------------------------------------------
+# Issue #973 — SLA Monitoring and Compliance Recording
+# ---------------------------------------------------------------------------
+
+@celery_app.task(
+    bind=True,
+    name="sla.record_metrics",
+    autoretry_for=(OSError, asyncpg.PostgresError),
+    retry_backoff=True,
+    max_retries=3,
+)
+def record_sla_metrics_task(self) -> Dict[str, Any]:
+    """Record SLA compliance metrics for all monitored endpoints.
+    
+    This task runs every 5 minutes (configured in Celery Beat schedule) to:
+    1. Aggregate Prometheus metrics over a 5-minute window
+    2. Calculate latency percentiles (P50, P95, P99)
+    3. Compute SLA compliance scores
+    4. Write records to the endpoint_sla_metrics table
+    5. Check for SLA violations and trigger alerts
+    
+    Returns:
+        Dictionary with recording statistics
+    """
+    from app.services.sla_recorder import record_sla_metrics
+    
+    try:
+        # Run the async function
+        stats = asyncio.run(record_sla_metrics())
+        return {
+            "status": "success",
+            "stats": stats,
+        }
+    except Exception as exc:
+        return {
+            "status": "error",
+            "error": str(exc),
+        }
