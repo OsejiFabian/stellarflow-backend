@@ -182,6 +182,8 @@ app.use("/api/v1/gas-profile", gasProfileRouter);
 app.use("/api/v1/zk", zkRouter);
 app.use("/api/v1/governance", governanceRouter);
 app.use("/api/v1/proof", proofRouter);
+// Issue #967 – verify Soroban storage inclusion proofs against ledger headers.
+app.use("/api/v1/state", stateRouter);
 app.use("/api/v1/orders", ordersRouter);
 app.use("/api/v1/users/watchlist", watchlistRouter);
 app.use("/api/v1/treasury", treasuryRouter);
