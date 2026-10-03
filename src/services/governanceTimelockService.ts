@@ -17,6 +17,9 @@ import { notificationService } from "./notificationService";
 import { governanceWebhookBroadcaster } from "./governanceWebhookBroadcaster";
 import { logger } from "../utils/logger";
 import { xdr } from "@stellar/stellar-sdk";
+import {
+  broadcastTimelockStatus,
+} from "../websockets/governanceWebSocket.service";
 
 // ---------------------------------------------------------------------------
 // Internal types
@@ -384,6 +387,13 @@ export class GovernanceTimelockService {
         );
       });
 
+    // Broadcast timelock status update via WebSocket
+    broadcastTimelockStatus(proposalId, {
+      proposalId,
+      status: "Executed",
+      executedAt: executedAt.toISOString(),
+    });
+
     logger.info(
       `[GovernanceTimelockService] Indexed TimelockActionExecuted: ${proposalId}`,
     );
@@ -492,6 +502,13 @@ export class GovernanceTimelockService {
                   err,
                 );
               });
+
+            // Broadcast timelock status update via WebSocket
+            broadcastTimelockStatus(proposal.proposalId, {
+              proposalId: proposal.proposalId,
+              status: "Expired",
+              expiresAt: proposal.expiresAt.toISOString(),
+            });
           }
         } catch (err) {
           logger.error(

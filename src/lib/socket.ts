@@ -411,6 +411,9 @@ export function initSocket(server: import("http").Server): Server {
   // Cleanup routine
   setInterval(cleanupSessions, CLEANUP_INTERVAL);
 
+  // Register governance WebSocket handlers
+  registerGovernanceHandlers(io);
+
   return io;
 }
 
