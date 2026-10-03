@@ -10,6 +10,7 @@ import { verifyOrderFilledEvent } from "./orderFillVerificationService.js";
 import { ingestGovernanceVoteEvent } from "./voterHistoryService.js";
 import { getCacheInvalidationManager } from "../cache/CacheInvalidationManager";
 import { getOrderBookSnapshotEngine } from "./orderBookSnapshotEngine";
+import { getAmmReserveDivergenceDetector } from "./ammReserveDivergenceDetector";
 
 dotenv.config();
 
@@ -156,6 +157,15 @@ export class SorobanEventListener {
           orderBookSnapshotEngine.onNewLedger(price.ledgerSeq).catch((err: unknown) => {
             logger.error("[EventListener] Order book snapshot failed:", err);
           });
+
+          getAmmReserveDivergenceDetector()
+            ?.onNewLedger(price.ledgerSeq)
+            .catch((err: unknown) => {
+              logger.error(
+                "[EventListener] AMM reserve divergence check failed:",
+                err,
+              );
+            });
         } catch (err) {
           logger.error("[Worker] Failed to process queued price:", err);
         }

@@ -5,14 +5,15 @@
  *
  * Endpoints:
  *   GET /api/v1/governance/voters/:account_id  – voter history + delegation tree
+ *   GET /api/v1/governance/analytics/turnout   – daily turnout % + category trends
  */
 
 import { Router } from "express";
+import { getVoterProfile, governanceVoterCache } from "../controllers/governanceController.js";
 import {
-  getProposalExecutionAvailability,
-  getVoterProfile,
-  governanceVoterCache,
-} from "../controllers/governanceController.js";
+  getGovernanceTurnout,
+  governanceTurnoutCache,
+} from "../controllers/governanceTurnoutController.js";
 
 const router = Router();
 
@@ -67,5 +68,8 @@ const router = Router();
  */
 router.get("/voters/:account_id", governanceVoterCache(), getVoterProfile);
 router.get("/execution-window", getProposalExecutionAvailability);
+
+// Swagger docs for this route live on the handler in governanceTurnoutController.ts.
+router.get("/analytics/turnout", governanceTurnoutCache(), getGovernanceTurnout);
 
 export default router;
