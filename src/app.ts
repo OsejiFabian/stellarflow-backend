@@ -1,4 +1,5 @@
-import dotenv from "dotenv";
+import dotenv
+from "dotenv";
 import express from "express";
 import morgan from "morgan";
 import swaggerUi from "swagger-ui-express";
@@ -23,6 +24,7 @@ import { jwtMiddleware } from "./middleware/jwtMiddleware";
 
 import adminRouter from "./routes/admin";
 import authRouter from "./routes/auth";
+import oidcRouter from "./routes/oidc";
 import assetsRouter from "./routes/assets";
 import derivedAssetsRouter from "./routes/derivedAssets";
 import historyRouter from "./routes/history";
@@ -114,6 +116,7 @@ app.get(
   }),
 );
 
+app.use("/api/v1/auth/oidc", oidcRouter);
 app.use("/api/v1/auth", authRouter);
 app.use("/api", apiKeyMiddleware);
 app.use("/api", rateLimitMiddleware);
@@ -257,7 +260,7 @@ app.get("/", (req, res) => {
       },
       derivedAssets: {
         crossRate: "/api/v1/derived-assets/rate/:base/:quote",
-        ngnGhs: "/api/v1/derived-assets/ngn-ghs",
+        ngnGhs: "/api/v1/derived-assets/njn-ghs",
       },
       admin: {
         lockdown: "POST /api/admin/lockdown",
