@@ -30,6 +30,10 @@ import {
   triggerManualRefund,
 } from "../controllers/disputeController";
 import {
+  generateWeeklyQueryPerformanceReport,
+  formatQueryPerformanceReport,
+} from "../jobs/queryPerformanceReportJob";
+import {
   enforceRoleMatrix,
   requireAdmin,
 } from "../middleware/roleMatrixMiddleware";
@@ -440,6 +444,63 @@ router.get("/reports/summary", async (req, res) => {
             error instanceof Error
               ? error.message
               : "Failed to generate report",
+          )
+        : undefined,
+    );
+  }
+});
+
+/**
+ * @swagger
+ * /api/admin/reports/query-performance:
+ *   get:
+ *     tags:
+ *       - Admin
+ *     summary: Generate Weekly Query Performance Report
+ *     description: >
+ *       Generates a weekly report summarizing database query performance,
+ *       including slow query statistics and recommendations for optimization.
+ *       Issue #1014 – PostgreSQL Query Execution Time Tracker and Slow Query Logger
+ *     responses:
+ *       '200':
+ *         description: Query performance report generated successfully
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                 report:
+ *                   type: object
+ *                 formatted:
+ *                   type: string
+ *       '500':
+ *         description: Internal server error
+ */
+router.get("/reports/query-performance", async (req, res) => {
+  try {
+    const summary = await generateWeeklyQueryPerformanceReport();
+    const formatted = formatQueryPerformanceReport(summary);
+
+    return res.json({
+      success: true,
+      report: summary,
+      formatted,
+    });
+  } catch (error) {
+    console.error("[AdminReports] Failed to generate query performance report:", error);
+    sendApiError(
+      res,
+      500,
+      "INTERNAL_SERVER_ERROR",
+      typeof (error instanceof Error
+        ? error.message
+        : "Failed to generate query performance report") === "string"
+        ? String(
+            error instanceof Error
+              ? error.message
+              : "Failed to generate query performance report",
           )
         : undefined,
     );
